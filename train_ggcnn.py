@@ -7,6 +7,7 @@ import logging
 import cv2
 
 import torch
+from torch._C import dtype
 import torch.utils.data
 import torch.optim as optim
 
@@ -61,9 +62,12 @@ network = 'ggcnn2'
 use_rgb = True
 use_depth = True
 vis = False
-max_epochs = 1e5
+max_epochs = int(1e5)
+max_size = 100
+batches_per_epoch = 10
 print_model_arc = False
-
+logdir = 'log'
+outdir = 'output'
 
 def validate(net, device, val_data, batches_per_epoch):
     """
@@ -147,7 +151,7 @@ def train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=Fals
     batch_idx = 0
     # Use batches per epoch to make training on different sized datasets (cornell/jacquard) more equivalent.
     while batch_idx < batches_per_epoch:
-        for x, y in train_data: # for x, y, _, _, _ in train_data:
+        for x, _, _, y in train_data: # for x, y, _, _, _ in train_data:
             batch_idx += 1
             if batch_idx >= batches_per_epoch:
                 break
@@ -199,12 +203,11 @@ def run():
 
     # Set-up output directories
     dt = datetime.datetime.now().strftime('%y%m%d_%H%M')
-    net_desc = '{}_{}'.format(dt, '_'.join(args.description.split()))
 
-    save_folder = os.path.join(args.outdir, net_desc)
+    save_folder = os.path.join(outdir, dt)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
-    tb = tensorboardX.SummaryWriter(os.path.join(args.logdir, net_desc))
+    tb = tensorboardX.SummaryWriter(os.path.join(logdir, dt))
 
     # Load Dataset
     # logging.info('Loading {} Dataset...'.format(args.dataset.title()))
@@ -254,16 +257,28 @@ def run():
         sys.stdout = sys.__stdout__
         f.close()
 
-    best_iou = 0.0
+    best_loss = 9999999.0
     for epoch in range(max_epochs):
         logging.info('Beginning Epoch {:02d}'.format(epoch))
         # get train data from env
         env.reset()
-        raw_data = [0,0,0,[0]]
-        while raw_data[1] == 0:
-            raw_data = env.step([])
-        train_data = [raw_data[0], raw_data[3]]
-        train_results = train(epoch, net, device, train_data, optimizer, args.batches_per_epoch, vis=vis)
+        train_data = []
+        # print("ahaha")
+        while len(train_data) < max_size:
+            step_data = env.step([])
+            # print([type(i) for i in step_data])
+            # print(step_data[3])
+            # print([torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))])
+            # print("attemp to collect",step_data[1], len(train_data))
+            if step_data[1] != 0:
+                step_data = list(step_data)
+                step_data[0] = torch.from_numpy(step_data[0])
+                step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
+                train_data.append(step_data)
+                logging.info('Collecting Data {:02d}/{} in epoch {}'.format(len(train_data), max_size, epoch))
+            env.reset()
+        
+        train_results = train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=vis)
 
         # Log training losses to tensorboard
         tb.add_scalar('loss/train_loss', train_results['loss'], epoch)
@@ -283,11 +298,18 @@ def run():
         #     tb.add_scalar('val_loss/' + n, l, epoch)
 
         # Save best performing network
-        iou = test_results['correct'] / (test_results['correct'] + test_results['failed'])
-        if iou > best_iou or epoch == 0 or (epoch % 10) == 0:
-            torch.save(net, os.path.join(save_folder, 'epoch_%02d_iou_%0.2f' % (epoch, iou)))
-            torch.save(net.state_dict(), os.path.join(save_folder, 'epoch_%02d_iou_%0.2f_statedict.pt' % (epoch, iou)))
-            best_iou = iou
+        # iou = test_results['correct'] / (test_results['correct'] + test_results['failed'])
+        # if iou > best_iou or epoch == 0 or (epoch % 10) == 0:
+        #     torch.save(net, os.path.join(save_folder, 'epoch_%02d_iou_%0.2f' % (epoch, iou)))
+        #     torch.save(net.state_dict(), os.path.join(save_folder, 'epoch_%02d_iou_%0.2f_statedict.pt' % (epoch, iou)))
+        #     best_iou = iou
+        
+        # Save best performing network
+        loss = train_results['loss']
+        if loss < best_loss or epoch == 0 or (epoch % 100) == 0:
+            torch.save(net, os.path.join(save_folder, 'epoch_%05d_iou_%0.4f' % (epoch, loss)))
+            torch.save(net.state_dict(), os.path.join(save_folder, 'epoch_%05d_iou_%0.4f_statedict.pt' % (epoch, loss)))
+            best_loss = loss
 
 
 if __name__ == '__main__':
