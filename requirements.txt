@@ -1,0 +1,10 @@
+imageio
+opencv_python
+pybullet
+torch>=1.6.0
+numpy
+gym>=0.17.2
+scikit-image
+matplotlib
+torchsummary
+tensorboardX

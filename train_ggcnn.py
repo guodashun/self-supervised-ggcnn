@@ -14,6 +14,7 @@ import torch.optim as optim
 import pybullet as p
 import gym
 import peg_in_hole_gym
+import numpy as np
 
 from torchsummary import summary
 
@@ -64,7 +65,7 @@ use_depth = True
 vis = False
 max_epochs = int(1e5)
 max_size = 100
-batches_per_epoch = 10
+batches_per_epoch = 100
 print_model_arc = False
 logdir = 'log'
 outdir = 'output'
@@ -155,14 +156,16 @@ def train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=Fals
             batch_idx += 1
             if batch_idx >= batches_per_epoch:
                 break
+            x = x.permute(2,0,1)
+            x = x.unsqueeze(0)
 
             xc = x.to(device)
-            yc = [yy.to(device) for yy in y]
+            yc = [yy.unsqueeze(0).to(device) for yy in y]
             lossd = net.compute_loss(xc, yc)
 
             loss = lossd['loss']
 
-            if batch_idx % 100 == 0:
+            if batch_idx % 10 == 0:
                 logging.info('Epoch: {}, Batch: {}, Loss: {:0.4f}'.format(epoch, batch_idx, loss.item()))
 
             results['loss'] += loss.item()
@@ -273,10 +276,11 @@ def run():
             if step_data[1] != 0:
                 step_data = list(step_data)
                 step_data[0] = torch.from_numpy(step_data[0])
-                step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
+                # step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
+                step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3]]
                 train_data.append(step_data)
                 logging.info('Collecting Data {:02d}/{} in epoch {}'.format(len(train_data), max_size, epoch))
-            env.reset()
+            env.reset() 
         
         train_results = train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=vis)
 
