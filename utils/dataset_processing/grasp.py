@@ -107,6 +107,17 @@ class GraspRectangles:
         grs.scale(scale)
         return grs
 
+    @classmethod
+    def load_from_pybullet_gym(cls, idx, data, scale=1.0):
+        grs = []
+        data = data[idx][4]
+        x, y, theta, w, h = data
+        grs.append(Grasp(np.array([y, x]), -theta/180.0*np.pi, w, h).as_gr)
+        grs = cls(grs)
+        grs.scale(scale)
+        return grs
+
+
     def append(self, gr):
         """
         Add a grasp rectangle to this GraspRectangles object

@@ -133,3 +133,7 @@ log/*
 
 # vscode 
 .vscode/*
+
+# output
+output/*
+

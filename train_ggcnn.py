@@ -269,12 +269,8 @@ def run():
         # print("ahaha")
         while len(train_data) < max_size:
             step_data = env.step([])
-            # print([type(i) for i in step_data])
-            # print(step_data[3])
-            # print([torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))])
-            # print("attemp to collect",step_data[1], len(train_data))
             if step_data[1] != 0:
-                step_data = list(step_data)
+                step_data = list(step_data) # step_data is a tuple
                 step_data[0] = torch.from_numpy(step_data[0])
                 # step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
                 step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3]]
