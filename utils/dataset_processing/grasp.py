@@ -282,13 +282,11 @@ class GraspRectangle:
 
         rr1, cc1 = self.polygon_coords()
         rr2, cc2 = polygon(gr.points[:, 0], gr.points[:, 1])
-
         try:
             r_max = max(rr1.max(), rr2.max()) + 1
             c_max = max(cc1.max(), cc2.max()) + 1
         except:
             return 0
-
         canvas = np.zeros((r_max, c_max))
         canvas[rr1, cc1] += 1
         canvas[rr2, cc2] += 1

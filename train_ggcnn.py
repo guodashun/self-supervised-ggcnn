@@ -273,7 +273,7 @@ def run():
                 step_data = list(step_data) # step_data is a tuple
                 step_data[0] = torch.from_numpy(step_data[0])
                 # step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
-                step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3]]
+                step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3][0]]
                 train_data.append(step_data)
                 logging.info('Collecting Data {:02d}/{} in epoch {}'.format(len(train_data), max_size, epoch))
             env.reset() 

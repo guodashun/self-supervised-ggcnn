@@ -8,6 +8,8 @@ import gym
 import peg_in_hole_gym
 import pybullet as p
 import numpy as np
+# import matplotlib.pyplot as plt
+from PIL import Image, ImageDraw
 
 from models.common import post_process_output
 from utils.dataset_processing import evaluation, grasp
@@ -59,8 +61,10 @@ n_grasps = 1
 def get_gtbb(data, idx, rot=0, zoom=1.0):
     gtbbs = grasp.GraspRectangles.load_from_pybullet_gym(idx, data, scale=output_size)# / 1024.0
     c = output_size//2
-    gtbbs.rotate(rot, (c, c))
-    gtbbs.zoom(zoom, (c, c))
+    # gtbbs.rotate(rot, (c, c))
+    # gtbbs.zoom(zoom, (c, c))
+    gtbbs.offset((output_size/2, output_size/2))
+    print("grs", gtbbs[0])
     return gtbbs
 
 if __name__ == '__main__':
@@ -88,7 +92,6 @@ if __name__ == '__main__':
     env = gym.make('peg-in-hole-v0', client=p.DIRECT, task='peg-in-hole')
     env.reset()
     test_data = []
-    # print("ahaha")
     while len(test_data) < max_size:
         step_data = env.step([])
         # print([type(i) for i in step_data])
@@ -98,9 +101,7 @@ if __name__ == '__main__':
         if step_data[1] != 0:
             step_data = list(step_data)
             step_data[0] = torch.from_numpy(step_data[0])
-            # step_data[3] = [torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))]
-            # print("hoho", step_data[3])
-            step_data.append(step_data[3][1])
+            step_data.append(step_data[3][1]) # for eval
             step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3][0]]
             test_data.append(step_data)
             logging.info('Collecting Data {:02d}/{}...'.format(len(test_data), max_size))
@@ -142,6 +143,12 @@ if __name__ == '__main__':
                 evaluation.plot_output(np.array(test_data[idx][0][:,:,1:4].numpy()[:,:,::-1], dtype=np.uint8),
                                        test_data[idx][0][:,:,0], q_img,
                                        ang_img, no_grasps=n_grasps, grasp_width_img=width_img)
+                # gsgs = get_gtbb(test_data, idx)[0].points
+                # img = Image.fromarray(np.array(test_data[idx][0][:,:,1:4].numpy()[:,:,::-1], dtype=np.uint8))
+                # draw = ImageDraw.Draw(img)
+                # draw.polygon([(i[0],i[1]) for i in gsgs], outline=25)
+                # img.show()
+                
 
     if iou_eval:
         logging.info('IOU Results: %d/%d = %f' % (results['correct'],
