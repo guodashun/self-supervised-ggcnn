@@ -137,3 +137,6 @@ log/*
 # output
 output/*
 
+# dataset
+dataset/*
+
