@@ -4,16 +4,19 @@ from torch._C import dtype
 
 import torch.utils.data
 
+import math
 import gym
 import peg_in_hole_gym
 import pybullet as p
 import numpy as np
 # import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
+from skimage.draw import polygon
 
 from models.common import post_process_output
 from utils.dataset_processing import evaluation, grasp
-# from utils.data import data, get_dataset
+from utils.dataset_processing.grasp import detect_grasps
+from utils.data.grasp_data import collect_data, get_file_data
 
 logging.basicConfig(level=logging.INFO)
 
@@ -49,23 +52,65 @@ logging.basicConfig(level=logging.INFO)
 
 #     return args
 
-network = 'output/epoch_00154_iou_0.0282' # path to model
+network = 'epoch_00001_iou_1.6268' # path to model
 use_rgb = True
 use_depth = True
 vis = True
 iou_eval = True
-max_size = 2
+max_size = 10
 output_size = 300
 n_grasps = 1
+mp_num = 16
+sub_num = 4
+dataset_dir = './dataset/'
 
 def get_gtbb(data, idx, rot=0, zoom=1.0):
-    gtbbs = grasp.GraspRectangles.load_from_pybullet_gym(idx, data, scale=output_size)# / 1024.0
-    c = output_size//2
-    # gtbbs.rotate(rot, (c, c))
-    # gtbbs.zoom(zoom, (c, c))
-    gtbbs.offset((output_size/2, output_size/2))
-    print("grs", gtbbs[0])
+    # gtbbs = grasp.GraspRectangles.load_from_pybullet_gym(idx, data, scale=output_size)# / 1024.0
+    # c = output_size//2
+    # # gtbbs.rotate(rot, (c, c))
+    # # gtbbs.zoom(zoom, (c, c))
+    # gtbbs.offset((output_size/2, output_size/2))
+    
+    x, y, angle, w, h = data[idx][4]
+    a = (  w * np.sin(angle) + h * np.cos(angle) + 150.0, - w * np.cos(angle) + h * np.sin(angle) + 150.0)
+    b = (  w * np.sin(angle) - h * np.cos(angle) - 150.0, + w * np.cos(angle) - h * np.sin(angle) + 150.0)
+    c = (- w * np.sin(angle) - h * np.cos(angle) + 150.0, + w * np.cos(angle) + h * np.sin(angle) + 150.0)
+    d = (- w * np.sin(angle) + h * np.cos(angle) - 150.0, - w * np.cos(angle) - h * np.sin(angle) + 150.0)
+    gtbbs = {
+             'a':a,
+             'b':b,
+             'c':c,
+             'd':d,
+             'angle':angle / 180. * math.pi
+            }
+    print("grs", gtbbs)
     return gtbbs
+
+
+def iou_cal(gs1, gs2, angle_threshold=np.pi/6):
+    if abs((gs1['angle'] - gs2['angle']  + np.pi/2) % np.pi - np.pi/2) > angle_threshold:
+        return 0
+    xx1 = [gs1['a'][0], gs1['b'][0], gs1['c'][0], gs1['d'][0]]
+    yy1 = [gs1['a'][1], gs1['b'][1], gs1['c'][1], gs1['d'][1]]
+    xx2 = [gs2['a'][0], gs2['b'][0], gs2['c'][0], gs2['d'][0]]
+    yy2 = [gs2['a'][1], gs2['b'][1], gs2['c'][1], gs2['d'][1]]
+
+    rr1, cc1 = polygon(xx1, yy1)
+    rr2, cc2 = polygon(xx2, yy2)
+    try:
+        r_max = max(rr1.max(), rr2.max()) + 1
+        c_max = max(cc1.max(), cc2.max()) + 1
+    except:
+        return 0
+    canvas = np.zeros((r_max, c_max))
+    canvas[rr1, cc1] += 1
+    canvas[rr2, cc2] += 1
+    union = np.sum(canvas > 0)
+    if union == 0:
+        return 0
+    intersection = np.sum(canvas == 2)
+    return intersection/union
+
 
 if __name__ == '__main__':
     # args = parse_args()
@@ -74,45 +119,15 @@ if __name__ == '__main__':
     net = torch.load(network)
     device = torch.device("cuda:0")
 
-    # # Load Dataset
-    # logging.info('Loading {} Dataset...'.format(args.dataset.title()))
-    # Dataset = get_dataset(args.dataset)
-    # test_dataset = Dataset(args.dataset_path, start=args.split, end=1.0, ds_rotate=args.ds_rotate,
-    #                        random_rotate=args.augment, random_zoom=args.augment,
-    #                        include_depth=args.use_depth, include_rgb=args.use_rgb)
-    # test_data = torch.utils.data.DataLoader(
-    #     test_dataset,
-    #     batch_size=1,
-    #     shuffle=False,
-    #     num_workers=args.num_workers
-    # )
-    # logging.info('Done')
     
     # init env
-    env = gym.make('peg-in-hole-v0', client=p.DIRECT, task='peg-in-hole')
-    env.reset()
-    test_data = []
-    while len(test_data) < max_size:
-        step_data = env.step([])
-        # print([type(i) for i in step_data])
-        # print(step_data[3])
-        # print([torch.tensor(step_data[3][i]) for i in range(len(step_data[3]))])
-        # print("attemp to collect",step_data[1], len(test_data))
-        if step_data[1] != 0:
-            step_data = list(step_data)
-            step_data[0] = torch.from_numpy(step_data[0])
-            step_data.append(step_data[3][1]) # for eval
-            step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3][0]]
-            test_data.append(step_data)
-            logging.info('Collecting Data {:02d}/{}...'.format(len(test_data), max_size))
-        env.reset() 
+    # env = gym.make('peg-in-hole-v0', client=p.DIRECT, task='peg-in-hole')
+    # env.reset()
+    # test_data = collect_data(env, max_size, mp_num, sub_num, 0)
+    
+    test_data = get_file_data(dataset_dir, max_size, 0)
+
     results = {'correct': 0, 'failed': 0}
-
-    # if args.jacquard_output:
-    #     jo_fn = args.network + '_jacquard_output.txt'
-    #     with open(jo_fn, 'w') as f:
-    #         pass
-
     with torch.no_grad():
         for idx, (x, _,_,y,_ ) in enumerate(test_data):
             logging.info('Processing {}/{}'.format(idx+1, len(test_data)))
@@ -123,16 +138,36 @@ if __name__ == '__main__':
             lossd = net.compute_loss(xc, yc)
             q_img, ang_img, width_img = post_process_output(lossd['pred']['pos'], lossd['pred']['cos'],
                                                         lossd['pred']['sin'], lossd['pred']['width'])
-
-            if iou_eval:
-                s = evaluation.calculate_iou_match(q_img, ang_img, get_gtbb(test_data, idx),
-                                                   no_grasps=n_grasps,
-                                                   grasp_width=width_img,
-                                                   )
-                if s:
-                    results['correct'] += 1
-                else:
-                    results['failed'] += 1
+            
+            gs1 = detect_grasps(q_img, ang_img, width_img)
+            detect_grasps(y[0].numpy().squeeze(), (torch.atan2(y[1], y[2]) / 2.0).numpy().squeeze(), y[3].numpy().squeeze())
+            if gs1:
+                
+                points = gs1[0].as_gr.points
+                gss1 = {
+                        'a':points[0],
+                        'b':points[1],
+                        'c':points[2],
+                        'd':points[3],
+                        'angle':gs1[0].angle
+                       }
+                data2 = get_gtbb(test_data, idx)
+                # gss2 = {
+                #         'a':data2[0],
+                #         'b':data2[1],
+                #         'c':data2[2],
+                #         'd':data2[3],
+                #         'angle':test_data[idx][4][2]
+                #        }
+                gss2 = data2
+                if iou_eval:
+                    s = iou_cal(gss1, gss2)
+                    if s > 0.25:
+                        results['correct'] += 1
+                    else:
+                        results['failed'] += 1
+            else:
+                results['failed'] += 1
             # if args.jacquard_output:
             #     grasps = grasp.detect_grasps(q_img, ang_img, width_img=width_img, no_grasps=1)
             #     with open(jo_fn, 'a') as f:
@@ -157,3 +192,4 @@ if __name__ == '__main__':
 
     # if args.jacquard_output:
     #     logging.info('Jacquard output saved to {}'.format(jo_fn))
+
