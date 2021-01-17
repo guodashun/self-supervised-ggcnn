@@ -4,7 +4,7 @@ import torch
 import torch.utils.data
 
 import random
-
+import logging
 
 class GraspDatasetBase(torch.utils.data.Dataset):
     """
@@ -96,3 +96,35 @@ class GraspDatasetBase(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.grasp_files)
+
+
+def collect_data(env, max_size, mp_num, sub_num, epoch):
+    train_data = []
+    while len(train_data) < max_size:
+        step_data_mp = env.step(env.action_space.sample())
+        for i in range(mp_num): # one simulation multi-agent
+            for j in range(sub_num): # one agent
+                if step_data_mp[1][i][j] != 0: # reward
+                    step_data = [step_data_mp[0][i][j], step_data_mp[1][i][j], step_data_mp[2], step_data_mp[3][i][j]]
+                    step_data[0] = torch.from_numpy(step_data[0])
+                    step_data[3] = [torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in step_data[3][0]]
+                    train_data.append(step_data)
+                    logging.info('Collecting Data {:02d}/{} in epoch {}'.format(len(train_data), max_size, epoch))
+                    if len(train_data) >= max_size:
+                        return train_data
+        env.reset()
+
+def get_file_data(dataset_dir, max_size, batch_num):
+    train_data = []
+    cnt = 0
+    while len(train_data) < max_size:
+        filename_0 = dataset_dir + str(batch_num * 100 + cnt).zfill(4) + "_0.npy.npz" 
+        filename_3 = dataset_dir + str(batch_num * 100 + cnt).zfill(4) + "_3.npy.npz" 
+        print("load data:", filename_0, filename_3)
+        with np.load(filename_0, allow_pickle=True) as data_0:
+            with np.load(filename_3, allow_pickle=True) as data_3:
+                train_data.append([torch.from_numpy(data_0['arr_0']), 0.,0.,[torch.from_numpy(np.expand_dims(s, 0).astype(np.float32)) for s in data_3["arr_0"][0]], data_3['arr_0'][1]])
+        cnt += 1
+    random.shuffle(train_data)
+    return train_data
+
